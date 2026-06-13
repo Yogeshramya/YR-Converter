@@ -186,7 +186,7 @@ export async function GET(req: NextRequest) {
   } catch (error: any) {
     console.error('[API Error] Downloader failed:', error);
     return NextResponse.json({
-      error: 'Failed to process YouTube link. Downloader encountered an error.',
+      error: `Failed to process YouTube link: ${error.message || 'Unknown error'}. Stderr: ${error.stderr || ''}. Stack: ${error.stack || ''}`,
       details: error.message || 'Unknown error'
     }, { status: 500 });
   }
