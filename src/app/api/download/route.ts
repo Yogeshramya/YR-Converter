@@ -89,7 +89,7 @@ function nodeToWebStream(nodeStream: any, childProcess?: any): ReadableStream {
 // ExecFile version wrapped in a Promise for metadata parsing
 function getMetadata(ytdlpPath: string, url: string): Promise<any> {
   return new Promise((resolve, reject) => {
-    execFile(ytdlpPath, ['--dump-json', '--no-playlist', url], (error, stdout, stderr) => {
+    execFile(ytdlpPath, ['--dump-json', '--no-playlist', '--js-runtimes', 'node', url], (error, stdout, stderr) => {
       if (error) {
         console.error('[API Metadata] Error running yt-dlp:', stderr);
         return reject(new Error(stderr || error.message));
@@ -160,7 +160,7 @@ export async function GET(req: NextRequest) {
     if (format === 'mp3') {
       console.log(`[API Download] Spawning yt-dlp for Audio (M4A) format for: ${url}`);
       // Stream best audio format (precompiled AAC/m4a container usually)
-      const child = spawn(ytdlpPath, ['-o', '-', '-f', 'ba[ext=m4a]/ba', url]);
+      const child = spawn(ytdlpPath, ['-o', '-', '-f', 'ba[ext=m4a]/ba', '--js-runtimes', 'node', url]);
       const webStream = nodeToWebStream(child.stdout, child);
 
       return new Response(webStream, {
@@ -172,7 +172,7 @@ export async function GET(req: NextRequest) {
     } else {
       console.log(`[API Download] Spawning yt-dlp for Video (MP4) format for: ${url}`);
       // Stream best merged MP4 format (does not require ffmpeg for post-processing/merging)
-      const child = spawn(ytdlpPath, ['-o', '-', '-f', 'best[ext=mp4]/best', url]);
+      const child = spawn(ytdlpPath, ['-o', '-', '-f', 'best[ext=mp4]/best', '--js-runtimes', 'node', url]);
       const webStream = nodeToWebStream(child.stdout, child);
 
       return new Response(webStream, {
