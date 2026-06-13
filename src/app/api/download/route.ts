@@ -103,10 +103,19 @@ function getCookieArg(): string[] {
   }
 }
 
+function getProxyArg(): string[] {
+  const proxyUrl = process.env.PROXY_URL || process.env.HTTP_PROXY || process.env.HTTPS_PROXY;
+  if (!proxyUrl) {
+    return [];
+  }
+  console.log('[API Proxy] Routing request via proxy configuration...');
+  return ['--proxy', proxyUrl.trim()];
+}
+
 // ExecFile version wrapped in a Promise for metadata parsing
 function getMetadata(ytdlpPath: string, url: string): Promise<any> {
   return new Promise((resolve, reject) => {
-    const args = ['--dump-json', '--no-playlist', '--js-runtimes', 'node', '--extractor-args', 'youtube:player-client=android,mweb', '--buffer-size', '1024K', ...getCookieArg(), url];
+    const args = ['--dump-json', '--no-playlist', '--js-runtimes', 'node', '--extractor-args', 'youtube:player-client=android,mweb', '--buffer-size', '1024K', ...getCookieArg(), ...getProxyArg(), url];
     execFile(ytdlpPath, args, (error, stdout, stderr) => {
       if (error) {
         console.error('[API Metadata] Error running yt-dlp:', stderr);
@@ -185,13 +194,14 @@ export async function GET(req: NextRequest) {
     const safeTitle = title.replace(/[^\x20-\x7E]/g, '').replace(/[\/\\?%*:|"<>\s]+/g, '_');
 
     const cookieArg = getCookieArg();
+    const proxyArg = getProxyArg();
     const formatSpec = isYouTube
       ? (format === 'mp3' ? 'ba[ext=m4a]/ba' : 'best[ext=mp4]/best')
       : (format === 'mp3' ? 'ba' : 'best');
 
     if (format === 'mp3') {
       console.log(`[API Download] Spawning yt-dlp for Audio format (${formatSpec}) for: ${url}`);
-      const child = spawn(ytdlpPath, ['-o', '-', '-f', formatSpec, '--js-runtimes', 'node', '--extractor-args', 'youtube:player-client=android,mweb', '--buffer-size', '1024K', ...cookieArg, url]);
+      const child = spawn(ytdlpPath, ['-o', '-', '-f', formatSpec, '--js-runtimes', 'node', '--extractor-args', 'youtube:player-client=android,mweb', '--buffer-size', '1024K', ...cookieArg, ...proxyArg, url]);
       const webStream = nodeToWebStream(child.stdout, child);
 
       return new Response(webStream, {
@@ -202,7 +212,7 @@ export async function GET(req: NextRequest) {
       });
     } else {
       console.log(`[API Download] Spawning yt-dlp for Video format (${formatSpec}) for: ${url}`);
-      const child = spawn(ytdlpPath, ['-o', '-', '-f', formatSpec, '--js-runtimes', 'node', '--extractor-args', 'youtube:player-client=android,mweb', '--buffer-size', '1024K', ...cookieArg, url]);
+      const child = spawn(ytdlpPath, ['-o', '-', '-f', formatSpec, '--js-runtimes', 'node', '--extractor-args', 'youtube:player-client=android,mweb', '--buffer-size', '1024K', ...cookieArg, ...proxyArg, url]);
       const webStream = nodeToWebStream(child.stdout, child);
 
       return new Response(webStream, {
