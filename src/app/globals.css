@@ -253,3 +253,11 @@ body::after {
   0% { height: 20%; }
   100% { height: 100%; }
 }
+
+/* Custom Responsive Helpers for Extra Small screens */
+@media (max-width: 450px) {
+  .xs-hidden {
+    display: none !important;
+  }
+}
+

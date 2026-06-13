@@ -417,7 +417,7 @@ export default function LocalConverter() {
 
           {status === 'idle' && (
             <div className="border-t border-white/5 pt-4 space-y-4">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <span className="text-sm font-medium text-gray-400 font-display">Target Audio Format</span>
                 <div className="flex gap-2 bg-white/5 p-1 rounded-lg border border-white/5">
                   <button
@@ -490,7 +490,7 @@ export default function LocalConverter() {
                 </div>
                 
                 {/* Audio visualizer design */}
-                <div className="waveform-container">
+                <div className="waveform-container xs-hidden">
                   <div className="waveform-bar" style={{ animationPlayState: isPlaying ? 'running' : 'paused' }}></div>
                   <div className="waveform-bar" style={{ animationPlayState: isPlaying ? 'running' : 'paused' }}></div>
                   <div className="waveform-bar" style={{ animationPlayState: isPlaying ? 'running' : 'paused' }}></div>
