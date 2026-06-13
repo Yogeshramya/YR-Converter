@@ -25,8 +25,8 @@ function getBinaryInfo() {
     };
   } else {
     return {
-      name: 'yt-dlp',
-      url: 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp'
+      name: 'yt-dlp_linux',
+      url: 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux'
     };
   }
 }
