@@ -129,12 +129,21 @@ export async function GET(req: NextRequest) {
   const infoOnly = searchParams.get('info') === 'true';
 
   if (!url) {
-    return NextResponse.json({ error: 'YouTube URL is required' }, { status: 400 });
+    return NextResponse.json({ error: 'URL is required' }, { status: 400 });
   }
 
-  const videoId = getYouTubeVideoId(url);
-  if (!videoId) {
-    return NextResponse.json({ error: 'Could not extract YouTube video ID' }, { status: 400 });
+  const isYouTube = /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)/.test(url);
+  const isInstagram = /^(https?:\/\/)?(www\.)?(instagram\.com)/.test(url);
+
+  if (!isYouTube && !isInstagram) {
+    return NextResponse.json({ error: 'Only YouTube and Instagram URLs are supported' }, { status: 400 });
+  }
+
+  if (isYouTube) {
+    const videoId = getYouTubeVideoId(url);
+    if (!videoId) {
+      return NextResponse.json({ error: 'Could not extract YouTube video ID' }, { status: 400 });
+    }
   }
 
   try {
@@ -146,8 +155,8 @@ export async function GET(req: NextRequest) {
       console.log('[API Metadata] Fetching metadata for:', url);
       const metadata = await getMetadata(ytdlpPath, url);
       
-      const title = metadata.title || 'YouTube Video';
-      const author = metadata.uploader || metadata.channel || 'Unknown Creator';
+      const title = metadata.title || (isInstagram ? 'Instagram Post' : 'YouTube Video');
+      const author = metadata.uploader || metadata.channel || (isInstagram ? 'Instagram User' : 'Unknown Creator');
       const duration = metadata.duration || 0;
       
       // Get best quality thumbnail
@@ -176,10 +185,13 @@ export async function GET(req: NextRequest) {
     const safeTitle = title.replace(/[^\x20-\x7E]/g, '').replace(/[\/\\?%*:|"<>\s]+/g, '_');
 
     const cookieArg = getCookieArg();
+    const formatSpec = isYouTube
+      ? (format === 'mp3' ? 'ba[ext=m4a]/ba' : 'best[ext=mp4]/best')
+      : (format === 'mp3' ? 'ba' : 'best');
+
     if (format === 'mp3') {
-      console.log(`[API Download] Spawning yt-dlp for Audio (M4A) format for: ${url}`);
-      // Stream best audio format (precompiled AAC/m4a container usually)
-      const child = spawn(ytdlpPath, ['-o', '-', '-f', 'ba[ext=m4a]/ba', '--js-runtimes', 'node', '--extractor-args', 'youtube:player-client=android,mweb', '--buffer-size', '1024K', ...cookieArg, url]);
+      console.log(`[API Download] Spawning yt-dlp for Audio format (${formatSpec}) for: ${url}`);
+      const child = spawn(ytdlpPath, ['-o', '-', '-f', formatSpec, '--js-runtimes', 'node', '--extractor-args', 'youtube:player-client=android,mweb', '--buffer-size', '1024K', ...cookieArg, url]);
       const webStream = nodeToWebStream(child.stdout, child);
 
       return new Response(webStream, {
@@ -189,9 +201,8 @@ export async function GET(req: NextRequest) {
         },
       });
     } else {
-      console.log(`[API Download] Spawning yt-dlp for Video (MP4) format for: ${url}`);
-      // Stream best merged MP4 format (does not require ffmpeg for post-processing/merging)
-      const child = spawn(ytdlpPath, ['-o', '-', '-f', 'best[ext=mp4]/best', '--js-runtimes', 'node', '--extractor-args', 'youtube:player-client=android,mweb', '--buffer-size', '1024K', ...cookieArg, url]);
+      console.log(`[API Download] Spawning yt-dlp for Video format (${formatSpec}) for: ${url}`);
+      const child = spawn(ytdlpPath, ['-o', '-', '-f', formatSpec, '--js-runtimes', 'node', '--extractor-args', 'youtube:player-client=android,mweb', '--buffer-size', '1024K', ...cookieArg, url]);
       const webStream = nodeToWebStream(child.stdout, child);
 
       return new Response(webStream, {
@@ -205,7 +216,7 @@ export async function GET(req: NextRequest) {
   } catch (error: any) {
     console.error('[API Error] Downloader failed:', error);
     return NextResponse.json({
-      error: `Failed to process YouTube link: ${error.message || 'Unknown error'}. Please try again later.`,
+      error: `Failed to process link: ${error.message || 'Unknown error'}. Please try again later.`,
       details: error.message || 'Unknown error'
     }, { status: 500 });
   }

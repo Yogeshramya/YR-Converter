@@ -21,12 +21,16 @@ export default function YoutubeConverter() {
   const [isDownloading, setIsDownloading] = useState(false);
   const [progress, setProgress] = useState(0);
 
-  // Validate YouTube URL
+  // Validate YouTube or Instagram URL
   useEffect(() => {
     const ytRegex = /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/(watch\?v=|embed\/|v\/|.+\?v=)?([^&=%\?]{11})/;
-    setIsValidUrl(ytRegex.test(url));
-    if (url && !ytRegex.test(url)) {
-      setError('Please enter a valid YouTube video link');
+    const igRegex = /^(https?:\/\/)?(www\.)?(instagram\.com)\/(p|reel|tv)\/([^/?#&]+)/;
+    const isYt = ytRegex.test(url);
+    const isIg = igRegex.test(url);
+    
+    setIsValidUrl(isYt || isIg);
+    if (url && !isYt && !isIg) {
+      setError('Please enter a valid YouTube or Instagram link');
     } else {
       setError(null);
     }
@@ -177,7 +181,7 @@ export default function YoutubeConverter() {
       <form onSubmit={fetchVideoInfo} className="space-y-4">
         <div>
           <label htmlFor="yt-url" className="block text-sm font-medium text-gray-400 mb-2 font-display">
-            Paste YouTube Video URL
+            Paste YouTube or Instagram Link
           </label>
           <div className="relative flex items-center">
             <div className="absolute left-4 text-gray-500">
@@ -186,7 +190,7 @@ export default function YoutubeConverter() {
             <input
               id="yt-url"
               type="text"
-              placeholder="https://www.youtube.com/watch?v=..."
+              placeholder="https://youtube.com/watch?v=... or https://instagram.com/reel/..."
               value={url}
               onChange={(e) => setUrl(e.target.value)}
               className="w-full pl-12 pr-24 py-4 glass-input text-sm md:text-base font-sans"
@@ -218,7 +222,7 @@ export default function YoutubeConverter() {
           ) : (
             <>
               <Play className="h-5 w-5 fill-current" />
-              Analyze YouTube Link
+              Analyze Link
             </>
           )}
         </button>

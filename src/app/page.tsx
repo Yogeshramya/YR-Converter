@@ -41,7 +41,7 @@ export default function Home() {
             }`}
           >
             <Link2 className="h-4 w-4" />
-            YouTube Link
+            YouTube / Instagram
           </button>
           
           <button
