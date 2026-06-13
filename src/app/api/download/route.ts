@@ -86,10 +86,28 @@ function nodeToWebStream(nodeStream: any, childProcess?: any): ReadableStream {
   });
 }
 
+function getCookieArg(): string[] {
+  const cookiesEnv = process.env.YOUTUBE_COOKIES;
+  if (!cookiesEnv) {
+    return [];
+  }
+  
+  try {
+    const cookiesPath = path.join(os.tmpdir(), 'cookies.txt');
+    fs.writeFileSync(cookiesPath, cookiesEnv.trim());
+    console.log('[API Cookie] Cookies written successfully to:', cookiesPath);
+    return ['--cookies', cookiesPath];
+  } catch (err) {
+    console.error('[API Cookie] Failed to write cookies file:', err);
+    return [];
+  }
+}
+
 // ExecFile version wrapped in a Promise for metadata parsing
 function getMetadata(ytdlpPath: string, url: string): Promise<any> {
   return new Promise((resolve, reject) => {
-    execFile(ytdlpPath, ['--dump-json', '--no-playlist', '--js-runtimes', 'node', '--extractor-args', 'youtube:player-client=android,mweb', url], (error, stdout, stderr) => {
+    const args = ['--dump-json', '--no-playlist', '--js-runtimes', 'node', '--extractor-args', 'youtube:player-client=android,mweb', ...getCookieArg(), url];
+    execFile(ytdlpPath, args, (error, stdout, stderr) => {
       if (error) {
         console.error('[API Metadata] Error running yt-dlp:', stderr);
         return reject(new Error(stderr || error.message));
@@ -157,10 +175,11 @@ export async function GET(req: NextRequest) {
     const title = metadata.title || 'download';
     const safeTitle = title.replace(/[^\x20-\x7E]/g, '').replace(/[\/\\?%*:|"<>\s]+/g, '_');
 
+    const cookieArg = getCookieArg();
     if (format === 'mp3') {
       console.log(`[API Download] Spawning yt-dlp for Audio (M4A) format for: ${url}`);
       // Stream best audio format (precompiled AAC/m4a container usually)
-      const child = spawn(ytdlpPath, ['-o', '-', '-f', 'ba[ext=m4a]/ba', '--js-runtimes', 'node', '--extractor-args', 'youtube:player-client=android,mweb', url]);
+      const child = spawn(ytdlpPath, ['-o', '-', '-f', 'ba[ext=m4a]/ba', '--js-runtimes', 'node', '--extractor-args', 'youtube:player-client=android,mweb', ...cookieArg, url]);
       const webStream = nodeToWebStream(child.stdout, child);
 
       return new Response(webStream, {
@@ -172,7 +191,7 @@ export async function GET(req: NextRequest) {
     } else {
       console.log(`[API Download] Spawning yt-dlp for Video (MP4) format for: ${url}`);
       // Stream best merged MP4 format (does not require ffmpeg for post-processing/merging)
-      const child = spawn(ytdlpPath, ['-o', '-', '-f', 'best[ext=mp4]/best', '--js-runtimes', 'node', '--extractor-args', 'youtube:player-client=android,mweb', url]);
+      const child = spawn(ytdlpPath, ['-o', '-', '-f', 'best[ext=mp4]/best', '--js-runtimes', 'node', '--extractor-args', 'youtube:player-client=android,mweb', ...cookieArg, url]);
       const webStream = nodeToWebStream(child.stdout, child);
 
       return new Response(webStream, {
