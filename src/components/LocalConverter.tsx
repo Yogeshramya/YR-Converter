@@ -248,8 +248,11 @@ export default function LocalConverter() {
         let offset = 0;
         
         // Chunked encoding loop to keep browser thread responsive
+        const chunksPerTick = 200;
+
         const encode = () => {
-          if (offset < leftChannel.length) {
+          let count = 0;
+          while (offset < leftChannel.length && count < chunksPerTick) {
             const leftChunk = leftChannel.subarray(offset, offset + sampleBlockSize);
             let mp3buf;
             
@@ -265,11 +268,15 @@ export default function LocalConverter() {
             }
             
             offset += sampleBlockSize;
+            count++;
+          }
+
+          if (offset < leftChannel.length) {
             // Map encoding progress from 60% to 95%
             const encodingProgress = Math.floor((offset / leftChannel.length) * 35) + 60;
             setProgress(encodingProgress);
             
-            // Queue next chunk immediately
+            // Queue next batch immediately
             setTimeout(encode, 0);
           } else {
             // Flush encoder

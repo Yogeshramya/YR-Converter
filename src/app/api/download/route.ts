@@ -106,7 +106,7 @@ function getCookieArg(): string[] {
 // ExecFile version wrapped in a Promise for metadata parsing
 function getMetadata(ytdlpPath: string, url: string): Promise<any> {
   return new Promise((resolve, reject) => {
-    const args = ['--dump-json', '--no-playlist', '--js-runtimes', 'node', '--extractor-args', 'youtube:player-client=android,mweb', ...getCookieArg(), url];
+    const args = ['--dump-json', '--no-playlist', '--js-runtimes', 'node', '--extractor-args', 'youtube:player-client=android,mweb', '--buffer-size', '1024K', ...getCookieArg(), url];
     execFile(ytdlpPath, args, (error, stdout, stderr) => {
       if (error) {
         console.error('[API Metadata] Error running yt-dlp:', stderr);
@@ -179,7 +179,7 @@ export async function GET(req: NextRequest) {
     if (format === 'mp3') {
       console.log(`[API Download] Spawning yt-dlp for Audio (M4A) format for: ${url}`);
       // Stream best audio format (precompiled AAC/m4a container usually)
-      const child = spawn(ytdlpPath, ['-o', '-', '-f', 'ba[ext=m4a]/ba', '--js-runtimes', 'node', '--extractor-args', 'youtube:player-client=android,mweb', ...cookieArg, url]);
+      const child = spawn(ytdlpPath, ['-o', '-', '-f', 'ba[ext=m4a]/ba', '--js-runtimes', 'node', '--extractor-args', 'youtube:player-client=android,mweb', '--buffer-size', '1024K', ...cookieArg, url]);
       const webStream = nodeToWebStream(child.stdout, child);
 
       return new Response(webStream, {
@@ -191,7 +191,7 @@ export async function GET(req: NextRequest) {
     } else {
       console.log(`[API Download] Spawning yt-dlp for Video (MP4) format for: ${url}`);
       // Stream best merged MP4 format (does not require ffmpeg for post-processing/merging)
-      const child = spawn(ytdlpPath, ['-o', '-', '-f', 'best[ext=mp4]/best', '--js-runtimes', 'node', '--extractor-args', 'youtube:player-client=android,mweb', ...cookieArg, url]);
+      const child = spawn(ytdlpPath, ['-o', '-', '-f', 'best[ext=mp4]/best', '--js-runtimes', 'node', '--extractor-args', 'youtube:player-client=android,mweb', '--buffer-size', '1024K', ...cookieArg, url]);
       const webStream = nodeToWebStream(child.stdout, child);
 
       return new Response(webStream, {
