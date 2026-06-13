@@ -2,9 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
 import { execFile, spawn } from 'child_process';
+import os from 'os';
 
-const PROJECT_ROOT = path.resolve(process.cwd());
-const binDir = path.join(PROJECT_ROOT, 'bin');
+export const maxDuration = 60;
+
+const binDir = process.env.VERCEL || process.platform !== 'win32'
+  ? path.join(os.tmpdir(), 'bin')
+  : path.join(path.resolve(process.cwd()), 'bin');
 
 // Helper to determine platform-specific binary name and download URL
 function getBinaryInfo() {
