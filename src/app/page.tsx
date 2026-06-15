@@ -93,7 +93,7 @@ export default function Home() {
 
       {/* Footer */}
       <footer className="w-full max-w-4xl mx-auto text-center mt-20 pt-8 border-t border-white/5 text-xs text-gray-500 font-mono">
-        <p>© 2026 PulseConvert. Open-source, clean media conversion utility.</p>
+        <p>© 2026 YRConvert. Open-source, clean media conversion utility.</p>
       </footer>
     </div>
   );

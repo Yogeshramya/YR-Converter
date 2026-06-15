@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "PulseConvert - Premium Video & YouTube Converter",
+  title: "YRConvert - Premium Video & YouTube Converter",
   description: "Extract high-quality audio from local videos directly in your browser, or convert YouTube videos to MP3 and MP4 instantly without external software.",
 };
 
