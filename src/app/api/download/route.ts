@@ -237,6 +237,7 @@ export async function GET(req: NextRequest) {
   const url = searchParams.get('url');
   const format = searchParams.get('format');
   const infoOnly = searchParams.get('info') === 'true';
+  const getDirectUrl = searchParams.get('getDirectUrl') === 'true';
   const cookiesFromBrowser = req.headers.get('x-cookies-from-browser') || searchParams.get('cookiesFromBrowser');
   const customCookiesBase64 = req.headers.get('x-youtube-cookies') || searchParams.get('customCookies');
 
@@ -260,6 +261,18 @@ export async function GET(req: NextRequest) {
     try {
       console.log('[API youtubei.js] Initializing Innertube...');
       const youtube = await Innertube.create();
+
+      if (getDirectUrl) {
+        console.log('[API youtubei.js] Fetching direct deciphered URL for:', videoId);
+        const info = await youtube.getInfo(videoId);
+        const formatObj = info.chooseFormat({
+          type: 'video+audio',
+          quality: 'best',
+          client: 'ANDROID'
+        });
+        const directUrl = await formatObj.decipher(youtube.session.player);
+        return NextResponse.json({ directUrl });
+      }
       
       if (infoOnly) {
         console.log('[API youtubei.js] Fetching metadata for:', videoId);
@@ -357,6 +370,16 @@ export async function GET(req: NextRequest) {
         thumbnail,
         views
       });
+    }
+
+    if (getDirectUrl) {
+      console.log('[API Download] Fetching direct URL metadata for:', url);
+      const metadata = await getMetadata(ytdlpPath, url, cookiesFromBrowser, customCookiesBase64);
+      const directUrl = metadata.url || (metadata.formats && metadata.formats.length > 0 ? metadata.formats[metadata.formats.length - 1].url : null);
+      if (!directUrl) {
+        throw new Error('No direct stream URL found in metadata.');
+      }
+      return NextResponse.json({ directUrl });
     }
 
     // 3. Fetch download stream

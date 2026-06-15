@@ -131,14 +131,15 @@ export default function YoutubeConverter() {
       downloadUrl += `&customCookies=${encodeURIComponent(base64Cookies)}`;
     }
     
-    try {
-      const headers: Record<string, string> = {};
-      headers['x-cookies-from-browser'] = browserParam;
+    const headers: Record<string, string> = {};
+    headers['x-cookies-from-browser'] = browserParam;
 
-      if (cookieSource === 'custom' && customCookiesText.trim()) {
-        const base64Cookies = btoa(unescape(encodeURIComponent(customCookiesText.trim())));
-        headers['x-youtube-cookies'] = base64Cookies;
-      }
+    if (cookieSource === 'custom' && customCookiesText.trim()) {
+      const base64Cookies = btoa(unescape(encodeURIComponent(customCookiesText.trim())));
+      headers['x-youtube-cookies'] = base64Cookies;
+    }
+
+    try {
 
       // 1. Fetch stream response
       const response = await fetch(downloadUrl, { headers });
@@ -146,8 +147,14 @@ export default function YoutubeConverter() {
       // 2. Check if response is error JSON
       const contentType = response.headers.get('content-type') || '';
       if (contentType.includes('application/json') || !response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to convert video.');
+        let errMsg = 'Failed to convert video.';
+        try {
+          const errorData = await response.json();
+          errMsg = errorData.error || errMsg;
+        } catch (_) {}
+        const error = new Error(errMsg);
+        (error as any).isApiError = true;
+        throw error;
       }
 
       // 3. Set up stream reader to track progress
@@ -195,21 +202,38 @@ export default function YoutubeConverter() {
       setTimeout(() => URL.revokeObjectURL(fileUrl), 100);
 
     } catch (err: any) {
-      console.warn('Direct stream fetch failed or was blocked by CORS. Falling back to direct browser redirect download...', err);
+      console.warn('Direct stream fetch failed. Attempting to retrieve direct URL fallback...', err);
       
-      // If we got a explicit error from our API, show it in the UI
-      if (err.message && (err.message.includes('Failed to convert') || err.message.includes('attempts failed') || err.message.includes('rate-limit') || err.message.includes('unavailable'))) {
-        setError(err.message);
-      } else {
-        // Otherwise, it was likely a CORS redirect block. Direct download handles this.
-        const link = document.createElement('a');
-        link.href = downloadUrl;
-        link.target = '_blank';
-        link.setAttribute('download', '');
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+      // Attempt to retrieve a direct stream URL from the API to bypass Vercel datacenter block
+      try {
+        let directUrlApi = `/api/download?url=${encodeURIComponent(url)}&getDirectUrl=true`;
+        directUrlApi += `&cookiesFromBrowser=${encodeURIComponent(browserParam)}`;
+        if (cookieSource === 'custom' && customCookiesText.trim()) {
+          const base64Cookies = btoa(unescape(encodeURIComponent(customCookiesText.trim())));
+          directUrlApi += `&customCookies=${encodeURIComponent(base64Cookies)}`;
+        }
+        
+        const directRes = await fetch(directUrlApi, { headers });
+        if (directRes.ok) {
+          const directData = await directRes.json();
+          if (directData.directUrl) {
+            console.log('Successfully retrieved direct stream URL fallback:', directData.directUrl);
+            const link = document.createElement('a');
+            link.href = directData.directUrl;
+            link.target = '_blank';
+            link.setAttribute('download', '');
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            return;
+          }
+        }
+      } catch (directErr) {
+        console.error('Failed to retrieve direct stream URL:', directErr);
       }
+
+      // If direct URL retrieval fails or isn't possible, show the original API error in the UI
+      setError(err.message || 'Error converting video. Please try again later.');
     } finally {
       setIsDownloading(false);
     }
