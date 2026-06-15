@@ -94,6 +94,26 @@ function nodeToWebStream(nodeStream: any, childProcess?: any): ReadableStream {
   });
 }
 
+async function fetchYouTubeOEmbed(url: string) {
+  try {
+    const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`;
+    const res = await fetch(oembedUrl);
+    if (res.ok) {
+      const data = await res.json();
+      return {
+        title: data.title || 'YouTube Video',
+        author: data.author_name || 'Unknown Creator',
+        thumbnail: data.thumbnail_url || '',
+        duration: 0,
+        views: 0
+      };
+    }
+  } catch (err) {
+    console.error('[API oEmbed] Fetch failed:', err);
+  }
+  return null;
+}
+
 interface CookieConfig {
   args: string[];
   cleanup?: () => void;
@@ -245,6 +265,15 @@ export async function GET(req: NextRequest) {
         console.log('[API youtubei.js] Fetching metadata for:', videoId);
         const info = await youtube.getInfo(videoId);
         
+        // If playability status is error or basic_info title is missing, fallback to oEmbed!
+        if (info.playability_status?.status === 'ERROR' || !info.basic_info?.title) {
+          console.log('[API youtubei.js] Blocked or empty info. Falling back to oEmbed...');
+          const oembedData = await fetchYouTubeOEmbed(url);
+          if (oembedData) {
+            return NextResponse.json(oembedData);
+          }
+        }
+
         const title = info.basic_info.title || 'YouTube Video';
         const author = info.basic_info.author || 'Unknown Creator';
         const duration = info.basic_info.duration || 0;
@@ -382,6 +411,27 @@ export async function GET(req: NextRequest) {
 
   } catch (error: any) {
     console.error('[API Error] Downloader failed:', error);
+    
+    // If it's a metadata request, return fallback instead of 500
+    if (infoOnly) {
+      if (isYouTube) {
+        const oembedData = await fetchYouTubeOEmbed(url);
+        if (oembedData) return NextResponse.json(oembedData);
+      }
+      
+      // Fallback details for Instagram or if YouTube oEmbed failed
+      return NextResponse.json({
+        title: isInstagram ? 'Instagram Post' : 'YouTube Video',
+        author: isInstagram ? 'Instagram User' : 'Unknown Creator',
+        duration: 0,
+        thumbnail: isInstagram 
+          ? 'https://upload.wikimedia.org/wikipedia/commons/a/a5/Instagram_icon.png' 
+          : 'https://upload.wikimedia.org/wikipedia/commons/b/b8/YouTube_Logo_2017.svg',
+        views: 0,
+        isFallback: true
+      });
+    }
+
     return NextResponse.json({
       error: `Failed to process link: ${error.message || 'Unknown error'}. Please try again later.`,
       details: error.message || 'Unknown error'
