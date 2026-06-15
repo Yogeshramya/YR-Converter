@@ -12,6 +12,58 @@ if (typeof globalThis !== 'undefined') {
   };
 }
 
+// Helper to parse Netscape cookie file content into standard Cookie header format
+function parseNetscapeCookies(cookiesText: string): string {
+  const lines = cookiesText.split('\n');
+  const cookiePairs: string[] = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const parts = trimmed.split(/\t+/);
+    if (parts.length >= 7) {
+      const name = parts[5].trim();
+      const value = parts[6].trim();
+      cookiePairs.push(`${name}=${value}`);
+    }
+  }
+  return cookiePairs.join('; ');
+}
+
+// Helper to initialize Innertube session with cookies if available
+async function createInnertubeSession(
+  cookiesFromBrowser?: string | null,
+  customCookiesBase64?: string | null
+): Promise<Innertube> {
+  const options: any = {};
+  if (customCookiesBase64) {
+    try {
+      const cookiesContent = Buffer.from(customCookiesBase64, 'base64').toString('utf-8');
+      const cookieHeader = parseNetscapeCookies(cookiesContent);
+      if (cookieHeader) {
+        options.cookie = cookieHeader;
+        console.log('[API youtubei.js] Session initialized with custom cookies.');
+      }
+    } catch (err) {
+      console.error('[API youtubei.js] Failed to parse custom cookies for Innertube:', err);
+    }
+  } else if (cookiesFromBrowser !== 'none') {
+    // Fall back to env cookies if available
+    const cookiesEnv = process.env.YOUTUBE_COOKIES;
+    if (cookiesEnv) {
+      try {
+        const cookieHeader = parseNetscapeCookies(cookiesEnv);
+        if (cookieHeader) {
+          options.cookie = cookieHeader;
+          console.log('[API youtubei.js] Session initialized with env cookies.');
+        }
+      } catch (err) {
+        console.error('[API youtubei.js] Failed to parse env cookies for Innertube:', err);
+      }
+    }
+  }
+  return Innertube.create(options);
+}
+
 export const maxDuration = 60;
 
 const binDir = process.env.VERCEL || process.platform !== 'win32'
@@ -260,7 +312,7 @@ export async function GET(req: NextRequest) {
 
     try {
       console.log('[API youtubei.js] Initializing Innertube...');
-      const youtube = await Innertube.create();
+      const youtube = await createInnertubeSession(cookiesFromBrowser, customCookiesBase64);
 
       if (getDirectUrl) {
         console.log('[API youtubei.js] Fetching direct deciphered URL for:', videoId);
