@@ -4,6 +4,19 @@ import path from 'path';
 import { execFile, spawn } from 'child_process';
 import os from 'os';
 import { Innertube, Platform } from 'youtubei.js';
+import { setGlobalDispatcher, ProxyAgent } from 'undici';
+
+// Initialize global proxy dispatcher if proxy URL is configured on the server
+const globalProxyUrl = process.env.PROXY_URL || process.env.HTTP_PROXY || process.env.HTTPS_PROXY;
+if (globalProxyUrl) {
+  try {
+    const proxyAgent = new ProxyAgent(globalProxyUrl.trim());
+    setGlobalDispatcher(proxyAgent);
+    console.log('[API global proxy] Global dispatcher configured successfully.');
+  } catch (err: any) {
+    console.error('[API global proxy] Failed to configure global proxy dispatcher:', err.message);
+  }
+}
 
 // Polyfill dynamic JavaScript execution for youtubei.js signature decryption
 if (typeof globalThis !== 'undefined') {
