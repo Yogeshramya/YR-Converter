@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Play, Download, Music, Video, Link, RefreshCw, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Play, Download, Music, Video, Link, RefreshCw, AlertCircle, CheckCircle2, Settings, ChevronDown, ChevronUp } from 'lucide-react';
 
 interface VideoInfo {
   title: string;
@@ -20,6 +20,40 @@ export default function YoutubeConverter() {
   const [downloadFormat, setDownloadFormat] = useState<'mp3' | 'mp4'>('mp3');
   const [isDownloading, setIsDownloading] = useState(false);
   const [progress, setProgress] = useState(0);
+
+  // Cookies settings state
+  const [cookieSource, setCookieSource] = useState<'none' | 'env' | 'browser' | 'custom'>('none');
+  const [selectedBrowser, setSelectedBrowser] = useState<string>('chrome');
+  const [customCookiesText, setCustomCookiesText] = useState('');
+  const [isSettingsExpanded, setIsSettingsExpanded] = useState(false);
+
+  // Load cookies configuration from localStorage on mount to prevent SSR hydration mismatch
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const savedSource = localStorage.getItem('ytdlp_cookie_source');
+      const savedBrowser = localStorage.getItem('ytdlp_cookie_browser');
+      const savedCookies = localStorage.getItem('ytdlp_custom_cookies');
+      
+      if (savedSource) setCookieSource(savedSource as any);
+      if (savedBrowser) setSelectedBrowser(savedBrowser);
+      if (savedCookies) setCustomCookiesText(savedCookies);
+    }
+  }, []);
+
+  const handleSourceChange = (val: 'none' | 'env' | 'browser' | 'custom') => {
+    setCookieSource(val);
+    localStorage.setItem('ytdlp_cookie_source', val);
+  };
+
+  const handleBrowserChange = (val: string) => {
+    setSelectedBrowser(val);
+    localStorage.setItem('ytdlp_cookie_browser', val);
+  };
+
+  const handleCookiesTextChange = (val: string) => {
+    setCustomCookiesText(val);
+    localStorage.setItem('ytdlp_custom_cookies', val);
+  };
 
   // Validate YouTube or Instagram URL
   useEffect(() => {
@@ -54,7 +88,18 @@ export default function YoutubeConverter() {
     setVideoInfo(null);
 
     try {
-      const response = await fetch(`/api/download?url=${encodeURIComponent(url)}&info=true`);
+      const headers: Record<string, string> = {};
+      const browserHeader = cookieSource === 'browser' ? selectedBrowser : cookieSource;
+      headers['x-cookies-from-browser'] = browserHeader;
+
+      if (cookieSource === 'custom' && customCookiesText.trim()) {
+        const base64Cookies = btoa(unescape(encodeURIComponent(customCookiesText.trim())));
+        headers['x-youtube-cookies'] = base64Cookies;
+      }
+
+      const response = await fetch(`/api/download?url=${encodeURIComponent(url)}&info=true`, {
+        headers
+      });
       const data = await response.json();
 
       if (!response.ok) {
@@ -77,11 +122,26 @@ export default function YoutubeConverter() {
     setProgress(0);
     setError(null);
     
-    const downloadUrl = `/api/download?url=${encodeURIComponent(url)}&format=${downloadFormat}`;
+    let downloadUrl = `/api/download?url=${encodeURIComponent(url)}&format=${downloadFormat}`;
+    const browserParam = cookieSource === 'browser' ? selectedBrowser : cookieSource;
+    downloadUrl += `&cookiesFromBrowser=${encodeURIComponent(browserParam)}`;
+    
+    if (cookieSource === 'custom' && customCookiesText.trim()) {
+      const base64Cookies = btoa(unescape(encodeURIComponent(customCookiesText.trim())));
+      downloadUrl += `&customCookies=${encodeURIComponent(base64Cookies)}`;
+    }
     
     try {
+      const headers: Record<string, string> = {};
+      headers['x-cookies-from-browser'] = browserParam;
+
+      if (cookieSource === 'custom' && customCookiesText.trim()) {
+        const base64Cookies = btoa(unescape(encodeURIComponent(customCookiesText.trim())));
+        headers['x-youtube-cookies'] = base64Cookies;
+      }
+
       // 1. Fetch stream response
-      const response = await fetch(downloadUrl);
+      const response = await fetch(downloadUrl, { headers });
       
       // 2. Check if response is error JSON
       const contentType = response.headers.get('content-type') || '';
@@ -227,6 +287,133 @@ export default function YoutubeConverter() {
           )}
         </button>
       </form>
+
+      {/* Collapsible Cookie Settings */}
+      <div className="glass-panel p-4 border border-white/5 bg-white/2 rounded-xl transition-all duration-300">
+        <button
+          type="button"
+          onClick={() => setIsSettingsExpanded(!isSettingsExpanded)}
+          className="w-full flex items-center justify-between text-xs font-semibold text-gray-400 hover:text-white transition-colors"
+        >
+          <div className="flex items-center gap-2">
+            <Settings className={`h-4 w-4 transition-transform duration-500 ${isSettingsExpanded ? 'rotate-90' : ''}`} />
+            <span>YouTube Cookie Settings (Bypass Bot Verification)</span>
+          </div>
+          {isSettingsExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+        </button>
+
+        {isSettingsExpanded && (
+          <div className="mt-4 pt-4 border-t border-white/5 space-y-4 animate-fade-in">
+            <div>
+              <label className="block text-xs font-medium text-gray-400 mb-2 font-display">
+                Cookies Source
+              </label>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleSourceChange('none')}
+                  className={`py-2 px-3 text-xs font-semibold rounded-lg border transition-all ${
+                    cookieSource === 'none'
+                      ? 'bg-violet-600/20 border-violet-500/50 text-white shadow-[0_0_10px_rgba(139,92,246,0.1)]'
+                      : 'bg-white/3 border-white/5 text-gray-400 hover:bg-white/5 hover:text-white'
+                  }`}
+                >
+                  No Cookies
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSourceChange('env')}
+                  className={`py-2 px-3 text-xs font-semibold rounded-lg border transition-all ${
+                    cookieSource === 'env'
+                      ? 'bg-violet-600/20 border-violet-500/50 text-white shadow-[0_0_10px_rgba(139,92,246,0.1)]'
+                      : 'bg-white/3 border-white/5 text-gray-400 hover:bg-white/5 hover:text-white'
+                  }`}
+                >
+                  Env Cookies
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSourceChange('browser')}
+                  className={`py-2 px-3 text-xs font-semibold rounded-lg border transition-all ${
+                    cookieSource === 'browser'
+                      ? 'bg-violet-600/20 border-violet-500/50 text-white shadow-[0_0_10px_rgba(139,92,246,0.1)]'
+                      : 'bg-white/3 border-white/5 text-gray-400 hover:bg-white/5 hover:text-white'
+                  }`}
+                >
+                  Local Browser
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSourceChange('custom')}
+                  className={`py-2 px-3 text-xs font-semibold rounded-lg border transition-all ${
+                    cookieSource === 'custom'
+                      ? 'bg-violet-600/20 border-violet-500/50 text-white shadow-[0_0_10px_rgba(139,92,246,0.1)]'
+                      : 'bg-white/3 border-white/5 text-gray-400 hover:bg-white/5 hover:text-white'
+                  }`}
+                >
+                  Pasted text
+                </button>
+              </div>
+            </div>
+
+            {cookieSource === 'none' && (
+              <p className="text-[10px] text-gray-500 font-mono leading-relaxed animate-fade-in">
+                💡 <strong>No Cookies mode:</strong> Run yt-dlp clean without passing any credentials. Prevents failures caused by expired environment cookies.
+              </p>
+            )}
+
+            {cookieSource === 'env' && (
+              <p className="text-[10px] text-gray-500 font-mono leading-relaxed animate-fade-in">
+                💡 <strong>Environment mode:</strong> Fall back to using the default cookie settings defined in the server's environment variables (e.g. process.env.YOUTUBE_COOKIES).
+              </p>
+            )}
+
+            {cookieSource === 'browser' && (
+              <div className="space-y-2 animate-fade-in">
+                <label htmlFor="browser-select" className="block text-xs font-medium text-gray-400 font-display">
+                  Select Local Browser
+                </label>
+                <select
+                  id="browser-select"
+                  value={selectedBrowser}
+                  onChange={(e) => handleBrowserChange(e.target.value)}
+                  className="w-full p-2.5 bg-black/40 border border-white/10 rounded-lg text-xs text-white focus:outline-none focus:border-violet-500 font-sans"
+                >
+                  <option value="chrome">Chrome</option>
+                  <option value="edge">Edge</option>
+                  <option value="firefox">Firefox</option>
+                  <option value="brave">Brave</option>
+                  <option value="opera">Opera</option>
+                  <option value="vivaldi">Vivaldi</option>
+                  <option value="safari">Safari (macOS)</option>
+                </select>
+                <p className="text-[10px] text-gray-500 font-mono leading-relaxed">
+                  💡 <strong>How it works:</strong> Under local deployment, yt-dlp will directly read your active login session cookies from the selected browser on your computer. Make sure you are logged into YouTube in this browser.
+                </p>
+              </div>
+            )}
+
+            {cookieSource === 'custom' && (
+              <div className="space-y-2 animate-fade-in">
+                <label htmlFor="cookies-textarea" className="block text-xs font-medium text-gray-400 font-display">
+                  Paste cookies.txt Content (Netscape format)
+                </label>
+                <textarea
+                  id="cookies-textarea"
+                  value={customCookiesText}
+                  onChange={(e) => handleCookiesTextChange(e.target.value)}
+                  placeholder="# Netscape HTTP Cookie File&#10;.youtube.com&#10;TRUE&#10;/&#10;FALSE&#10;..."
+                  rows={4}
+                  className="w-full p-3 bg-black/40 border border-white/10 rounded-lg text-xs text-white focus:outline-none focus:border-violet-500 font-mono resize-y"
+                />
+                <p className="text-[10px] text-gray-500 font-mono leading-relaxed">
+                  💡 Export cookies using a browser extension (like &quot;Get cookies.txt LOCALLY&quot;) and paste the file content here. Essential if running on a remote server.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* Error Message */}
       {error && (

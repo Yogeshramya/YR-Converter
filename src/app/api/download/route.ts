@@ -3,6 +3,14 @@ import fs from 'fs';
 import path from 'path';
 import { execFile, spawn } from 'child_process';
 import os from 'os';
+import { Innertube, Platform } from 'youtubei.js';
+
+// Polyfill dynamic JavaScript execution for youtubei.js signature decryption
+if (typeof globalThis !== 'undefined') {
+  Platform.shim.eval = async (data: any, env: any) => {
+    return new Function(...Object.keys(env), data.output)(...Object.values(env));
+  };
+}
 
 export const maxDuration = 60;
 
@@ -86,21 +94,73 @@ function nodeToWebStream(nodeStream: any, childProcess?: any): ReadableStream {
   });
 }
 
-function getCookieArg(): string[] {
+interface CookieConfig {
+  args: string[];
+  cleanup?: () => void;
+}
+
+function getCookieArg(
+  cookiesFromBrowser?: string | null,
+  customCookiesBase64?: string | null
+): CookieConfig {
+  // Option 1: Custom base64 cookies passed in header or query param
+  if (customCookiesBase64) {
+    try {
+      const cookiesContent = Buffer.from(customCookiesBase64, 'base64').toString('utf-8').trim();
+      const tempPath = path.join(
+        os.tmpdir(),
+        `cookies_${Date.now()}_${Math.random().toString(36).substring(7)}.txt`
+      );
+      fs.writeFileSync(tempPath, cookiesContent);
+      console.log('[API Cookie] Custom cookies written successfully to:', tempPath);
+      return {
+        args: ['--cookies', tempPath],
+        cleanup: () => {
+          try {
+            if (fs.existsSync(tempPath)) {
+              fs.unlinkSync(tempPath);
+              console.log('[API Cookie] Temporary custom cookies file cleaned up:', tempPath);
+            }
+          } catch (e) {
+            console.error('[API Cookie] Failed to clean up temp cookies file:', e);
+          }
+        }
+      };
+    } catch (err) {
+      console.error('[API Cookie] Failed to handle custom cookies:', err);
+    }
+  }
+
+  // Option 2: Browser cookies extraction (local only)
+  if (cookiesFromBrowser && cookiesFromBrowser !== 'none' && cookiesFromBrowser !== 'env' && cookiesFromBrowser !== 'custom') {
+    console.log(`[API Cookie] Extracting cookies from browser: ${cookiesFromBrowser}`);
+    return {
+      args: ['--cookies-from-browser', cookiesFromBrowser]
+    };
+  }
+
+  // If cookiesFromBrowser is explicitly 'none', do NOT use any cookies (ignore env)
+  if (cookiesFromBrowser === 'none') {
+    console.log('[API Cookie] Cookies source explicitly set to none. Running without cookies.');
+    return { args: [] };
+  }
+
+  // Option 3: Fallback to process.env.YOUTUBE_COOKIES
   const cookiesEnv = process.env.YOUTUBE_COOKIES;
-  if (!cookiesEnv) {
-    return [];
+  if (cookiesEnv) {
+    try {
+      const cookiesPath = path.join(os.tmpdir(), 'cookies.txt');
+      fs.writeFileSync(cookiesPath, cookiesEnv.trim());
+      console.log('[API Cookie] Env cookies written successfully to:', cookiesPath);
+      return {
+        args: ['--cookies', cookiesPath]
+      };
+    } catch (err) {
+      console.error('[API Cookie] Failed to write env cookies file:', err);
+    }
   }
-  
-  try {
-    const cookiesPath = path.join(os.tmpdir(), 'cookies.txt');
-    fs.writeFileSync(cookiesPath, cookiesEnv.trim());
-    console.log('[API Cookie] Cookies written successfully to:', cookiesPath);
-    return ['--cookies', cookiesPath];
-  } catch (err) {
-    console.error('[API Cookie] Failed to write cookies file:', err);
-    return [];
-  }
+
+  return { args: [] };
 }
 
 function getProxyArg(): string[] {
@@ -113,10 +173,31 @@ function getProxyArg(): string[] {
 }
 
 // ExecFile version wrapped in a Promise for metadata parsing
-function getMetadata(ytdlpPath: string, url: string): Promise<any> {
+function getMetadata(
+  ytdlpPath: string,
+  url: string,
+  cookiesFromBrowser?: string | null,
+  customCookiesBase64?: string | null
+): Promise<any> {
   return new Promise((resolve, reject) => {
-    const args = ['--dump-json', '--no-playlist', '--js-runtimes', 'node', '--extractor-args', 'youtube:player-client=android,mweb', '--buffer-size', '1024K', ...getCookieArg(), ...getProxyArg(), url];
+    const cookieConfig = getCookieArg(cookiesFromBrowser, customCookiesBase64);
+    const args = [
+      '--dump-json',
+      '--no-playlist',
+      '--js-runtimes',
+      'node',
+      '--extractor-args',
+      'youtube:player-client=android,mweb',
+      '--buffer-size',
+      '1024K',
+      ...cookieConfig.args,
+      ...getProxyArg(),
+      url
+    ];
     execFile(ytdlpPath, args, (error, stdout, stderr) => {
+      if (cookieConfig.cleanup) {
+        cookieConfig.cleanup();
+      }
       if (error) {
         console.error('[API Metadata] Error running yt-dlp:', stderr);
         return reject(new Error(stderr || error.message));
@@ -136,6 +217,8 @@ export async function GET(req: NextRequest) {
   const url = searchParams.get('url');
   const format = searchParams.get('format');
   const infoOnly = searchParams.get('info') === 'true';
+  const cookiesFromBrowser = req.headers.get('x-cookies-from-browser') || searchParams.get('cookiesFromBrowser');
+  const customCookiesBase64 = req.headers.get('x-youtube-cookies') || searchParams.get('customCookies');
 
   if (!url) {
     return NextResponse.json({ error: 'URL is required' }, { status: 400 });
@@ -153,6 +236,66 @@ export async function GET(req: NextRequest) {
     if (!videoId) {
       return NextResponse.json({ error: 'Could not extract YouTube video ID' }, { status: 400 });
     }
+
+    try {
+      console.log('[API youtubei.js] Initializing Innertube...');
+      const youtube = await Innertube.create();
+      
+      if (infoOnly) {
+        console.log('[API youtubei.js] Fetching metadata for:', videoId);
+        const info = await youtube.getInfo(videoId);
+        
+        const title = info.basic_info.title || 'YouTube Video';
+        const author = info.basic_info.author || 'Unknown Creator';
+        const duration = info.basic_info.duration || 0;
+        
+        let thumbnail = '';
+        if (info.basic_info.thumbnail && info.basic_info.thumbnail.length > 0) {
+          thumbnail = info.basic_info.thumbnail[info.basic_info.thumbnail.length - 1].url;
+        }
+
+        const views = info.basic_info.view_count || 0;
+
+        return NextResponse.json({
+          title,
+          author,
+          duration,
+          thumbnail,
+          views
+        });
+      }
+
+      console.log('[API youtubei.js] Fetching download stream for:', videoId);
+      const info = await youtube.getInfo(videoId);
+      const title = info.basic_info.title || 'download';
+      const safeTitle = title.replace(/[^\x20-\x7E]/g, '').replace(/[\/\\?%*:|"<>\s]+/g, '_');
+
+      // Use the ANDROID client for video+audio stream (pre-deciphered or highly bypass-friendly, works without cookies)
+      const stream = await youtube.download(videoId, {
+        type: 'video+audio',
+        quality: 'best',
+        client: 'ANDROID'
+      });
+
+      if (format === 'mp3') {
+        return new Response(stream as any, {
+          headers: {
+            'Content-Type': 'audio/mp4',
+            'Content-Disposition': `attachment; filename="${safeTitle}.mp3"`,
+          },
+        });
+      } else {
+        return new Response(stream as any, {
+          headers: {
+            'Content-Type': 'video/mp4',
+            'Content-Disposition': `attachment; filename="${safeTitle}.mp4"`,
+          },
+        });
+      }
+    } catch (err: any) {
+      console.error('[API youtubei.js Error] Failed:', err);
+      console.log('[API Fallback] Falling back to standard yt-dlp flow.');
+    }
   }
 
   try {
@@ -162,7 +305,7 @@ export async function GET(req: NextRequest) {
     // 2. Fetch metadata info
     if (infoOnly) {
       console.log('[API Metadata] Fetching metadata for:', url);
-      const metadata = await getMetadata(ytdlpPath, url);
+      const metadata = await getMetadata(ytdlpPath, url, cookiesFromBrowser, customCookiesBase64);
       
       const title = metadata.title || (isInstagram ? 'Instagram Post' : 'YouTube Video');
       const author = metadata.uploader || metadata.channel || (isInstagram ? 'Instagram User' : 'Unknown Creator');
@@ -189,11 +332,11 @@ export async function GET(req: NextRequest) {
 
     // 3. Fetch download stream
     console.log(`[API Download] Fetching metadata before stream download for: ${url}`);
-    const metadata = await getMetadata(ytdlpPath, url);
+    const metadata = await getMetadata(ytdlpPath, url, cookiesFromBrowser, customCookiesBase64);
     const title = metadata.title || 'download';
     const safeTitle = title.replace(/[^\x20-\x7E]/g, '').replace(/[\/\\?%*:|"<>\s]+/g, '_');
 
-    const cookieArg = getCookieArg();
+    const cookieConfig = getCookieArg(cookiesFromBrowser, customCookiesBase64);
     const proxyArg = getProxyArg();
     const formatSpec = isYouTube
       ? (format === 'mp3' ? 'ba[ext=m4a]/ba' : 'best[ext=mp4]/best')
@@ -201,7 +344,14 @@ export async function GET(req: NextRequest) {
 
     if (format === 'mp3') {
       console.log(`[API Download] Spawning yt-dlp for Audio format (${formatSpec}) for: ${url}`);
-      const child = spawn(ytdlpPath, ['-o', '-', '-f', formatSpec, '--js-runtimes', 'node', '--extractor-args', 'youtube:player-client=android,mweb', '--buffer-size', '1024K', ...cookieArg, ...proxyArg, url]);
+      const child = spawn(ytdlpPath, ['-o', '-', '-f', formatSpec, '--js-runtimes', 'node', '--extractor-args', 'youtube:player-client=android,mweb', '--buffer-size', '1024K', ...cookieConfig.args, ...proxyArg, url]);
+      
+      if (cookieConfig.cleanup) {
+        const cleanup = cookieConfig.cleanup;
+        child.on('close', cleanup);
+        child.on('error', cleanup);
+      }
+
       const webStream = nodeToWebStream(child.stdout, child);
 
       return new Response(webStream, {
@@ -212,7 +362,14 @@ export async function GET(req: NextRequest) {
       });
     } else {
       console.log(`[API Download] Spawning yt-dlp for Video format (${formatSpec}) for: ${url}`);
-      const child = spawn(ytdlpPath, ['-o', '-', '-f', formatSpec, '--js-runtimes', 'node', '--extractor-args', 'youtube:player-client=android,mweb', '--buffer-size', '1024K', ...cookieArg, ...proxyArg, url]);
+      const child = spawn(ytdlpPath, ['-o', '-', '-f', formatSpec, '--js-runtimes', 'node', '--extractor-args', 'youtube:player-client=android,mweb', '--buffer-size', '1024K', ...cookieConfig.args, ...proxyArg, url]);
+      
+      if (cookieConfig.cleanup) {
+        const cleanup = cookieConfig.cleanup;
+        child.on('close', cleanup);
+        child.on('error', cleanup);
+      }
+
       const webStream = nodeToWebStream(child.stdout, child);
 
       return new Response(webStream, {
